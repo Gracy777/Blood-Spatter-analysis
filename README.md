@@ -1,207 +1,160 @@
-import { useState, useRef, useEffect } from 'react';
-import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { useState, useRef, useEffect } from 'react'
+import { Button } from "/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "/components/ui/card"
+import { Upload, Camera, Check } from "lucide-react"
+import { Star } from "lucide-react"
+import { Label } from "/components/ui/label"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "/components/ui/table"
 
-export default function BloodSpatterAnalysisTool() {
-  const [stream, setStream] = useState(null);
-  const [points, setPoints] = useState([]);
-  const [spatterType, setSpatterType] = useState('No pattern detected');
-  const [distance, setDistance] = useState('0 cm');
-  const [showCamera, setShowCamera] = useState(false);
+export default function BloodSpatterAnalyzer() {
+  const [imageSrc, setImageSrc] = useState<string | null>(null)
+  const [bloodDrops, setBloodDrops] = useState<{ x: number, y: number }[]>([])
+  const [selectedDrop, setSelectedDrop] = useState<number | null>(null)
+  const [distances, setDistances] = useState<{ index1: number, index2: number, distance: number }[]>([])
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
 
-  const cameraRef = useRef(null);
-  const canvasRef = useRef(null);
-  const fileInputRef = useRef(null);
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setImageSrc(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleImageClick = (event: React.MouseEvent<HTMLImageElement>) => {
+    if (!imageSrc) return
+
+    const rect = event.currentTarget.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    const y = event.clientY - rect.top
+
+    setBloodDrops([...bloodDrops, { x, y }])
+  }
+
+  const handleDropClick = (index: number) => {
+    if (selectedDrop === null) {
+      setSelectedDrop(index)
+    } else {
+      const drop1 = bloodDrops[selectedDrop]
+      const drop2 = bloodDrops[index]
+      const dist = Math.sqrt((drop2.x - drop1.x) ** 2 + (drop2.y - drop1.y) ** 2)
+      setDistances([...distances, { index1: selectedDrop, index2: index, distance: dist }])
+      setSelectedDrop(null)
+    }
+  }
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+      }
+    } catch (error) {
+      console.error("Error accessing camera:", error)
+    }
+  }
+
+  const captureImage = () => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current
+      const canvas = canvasRef.current
+      const context = canvas.getContext('2d')
+      if (context) {
+        canvas.width = video.videoWidth
+        canvas.height = video.videoHeight
+        context.drawImage(video, 0, 0, canvas.width, canvas.height)
+        setImageSrc(canvas.toDataURL('image/png'))
+      }
+    }
+  }
 
   useEffect(() => {
-    if (canvasRef.current) {
-      const canvas = canvasRef.current;
-      canvas.width = 800;
-      canvas.height = 450;
-    }
-  }, []);
-
-  const handleCameraOpen = async () => {
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
-      setStream(mediaStream);
-      if (cameraRef.current) {
-        cameraRef.current.srcObject = mediaStream;
-        setShowCamera(true);
+    startCamera()
+    return () => {
+      if (videoRef.current) {
+        const stream = videoRef.current.srcObject
+        if (stream instanceof MediaStream) {
+          const tracks = stream.getTracks()
+          tracks.forEach(track => track.stop())
+        }
       }
-    } catch (err) {
-      alert('Camera access denied or not available');
     }
-  };
-
-  const handleCapture = () => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(cameraRef.current, 0, 0, canvas.width, canvas.height);
-    setShowCamera(false);
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      setStream(null);
-    }
-  };
-
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const img = new Image();
-      img.onload = () => {
-        const ctx = canvasRef.current.getContext('2d');
-        ctx.drawImage(img, 0, 0, canvasRef.current.width, canvasRef.current.height);
-      };
-      img.src = URL.createObjectURL(file);
-    }
-  };
-
-  const handleCanvasClick = (e) => {
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-
-    const newPoints = [...points, { x, y }];
-    setPoints(newPoints);
-    drawPoint(x, y);
-
-    if (newPoints.length === 2) {
-      calculateDistance(newPoints);
-      analyzePattern();
-      setPoints([]);
-    }
-  };
-
-  const drawPoint = (x, y) => {
-    const ctx = canvasRef.current.getContext('2d');
-    ctx.beginPath();
-    ctx.arc(x, y, 5, 0, 2 * Math.PI);
-    ctx.fillStyle = 'red';
-    ctx.fill();
-  };
-
-  const calculateDistance = (points) => {
-    const dx = points[1].x - points[0].x;
-    const dy = points[1].y - points[0].y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    const distanceCm = (distance * 0.026458333).toFixed(2);
-    setDistance(`${distanceCm} cm`);
-
-    const ctx = canvasRef.current.getContext('2d');
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    ctx.lineTo(points[1].x, points[1].y);
-    ctx.strokeStyle = 'red';
-    ctx.stroke();
-  };
-
-  const analyzePattern = () => {
-    const patterns = ['Impact Spatter', 'Cast-off Pattern', 'Projected Pattern', 'Transfer Pattern'];
-    const randomPattern = patterns[Math.floor(Math.random() * patterns.length)];
-    setSpatterType(randomPattern);
-  };
-
-  const generateReport = () => {
-    const reportWindow = window.open('', '_blank');
-    reportWindow.document.write(`
-      <html>
-        <head>
-          <title>Blood Spatter Analysis Report</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 20px; }
-            .header { text-align: center; margin-bottom: 30px; }
-            .content { margin: 20px 0; }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h1>Blood Spatter Analysis Report</h1>
-            <p>Generated on: ${new Date().toLocaleString()}</p>
-          </div>
-          <div class="content">
-            <h2>Analysis Results</h2>
-            <p>Pattern Type: ${spatterType}</p>
-            <p>Distance Measured: ${distance}</p>
-          </div>
-          <img src="${canvasRef.current.toDataURL()}" style="max-width: 100%;">
-        </body>
-      </html>
-    `);
-  };
+  }, [])
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <header className="text-center mb-8">
-        <h1 className="text-4xl font-bold text-slate-800 mb-2">BloodSpatter Analysis Tool</h1>
-        <p className="text-slate-600">Professional Crime Scene Analysis Software</p>
-      </header>
-
-      <div className="grid md:grid-cols-2 gap-8">
-        <Card>
-          <CardHeader>
-            <CardTitle>Image Capture</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {showCamera && (
-                <video
-                  ref={cameraRef}
-                  className="w-full h-64 bg-slate-200 rounded-lg object-cover"
-                  autoPlay
-                />
-              )}
-              <canvas
-                ref={canvasRef}
-                className="w-full h-64 bg-slate-200 rounded-lg border-2 border-slate-300"
-                onClick={handleCanvasClick}
-              />
-              <div className="flex gap-4">
-                <Button onClick={handleCameraOpen}>
-                  <i className="bi bi-camera-fill mr-2" /> Open Camera
-                </Button>
-                {showCamera && (
-                  <Button onClick={handleCapture} variant="secondary">
-                    <i className="bi bi-camera mr-2" /> Capture
-                  </Button>
-                )}
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleFileUpload}
-                />
-                <Button onClick={() => fileInputRef.current.click()} variant="outline">
-                  <i className="bi bi-upload mr-2" /> Upload Image
-                </Button>
-              </div>
+    <Card className="w-full max-w-4xl mx-auto">
+      <CardHeader>
+        <CardTitle className="text-2xl font-bold">Blood Spatter Analyzer</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-center">
+          <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+            <div className="flex flex-col items-center justify-center pt-5 pb-6">
+              <Upload className="w-10 h-10 text-gray-400" />
+              <p className="mb-2 text-sm text-gray-500"><span className="font-semibold">Click to upload</span> or drag and drop</p>
+              <p className="text-xs text-gray-500">PNG, JPG, GIF up to 10MB</p>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Analysis Results</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="p-4 bg-slate-50 rounded-lg">
-                <h3 className="font-semibold mb-2">Blood Spatter Type</h3>
-                <div className="text-slate-600">{spatterType}</div>
+            <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
+          </label>
+        </div>
+        <div className="flex items-center justify-center">
+          <video ref={videoRef} autoPlay playsInline className="w-full h-auto max-h-64" />
+          <Button onClick={captureImage} className="ml-4">
+            <Camera className="mr-2" />
+            Capture
+          </Button>
+        </div>
+        <canvas ref={canvasRef} className="hidden" />
+        {imageSrc && (
+          <div className="relative">
+            <img src={imageSrc} alt="Blood Spatter" className="w-full h-auto" onClick={handleImageClick} />
+            {bloodDrops.map((drop, index) => (
+              <div
+                key={index}
+                className="absolute w-4 h-4 bg-red-500 rounded-full cursor-pointer"
+                style={{ left: `${drop.x}px`, top: `${drop.y}px` }}
+                onClick={() => handleDropClick(index)}
+              >
+                {selectedDrop === index && <Star className="absolute w-4 h-4 text-white" />}
               </div>
-              <div className="p-4 bg-slate-50 rounded-lg">
-                <h3 className="font-semibold mb-2">Distance Measurement</h3>
-                <div className="text-slate-600">{distance}</div>
-              </div>
-              <Button onClick={generateReport} className="w-full bg-red-600">
-                <i className="bi bi-file-pdf mr-2" /> Generate Report
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
+            ))}
+          </div>
+        )}
+        {distances.length > 0 && (
+          <div className="mt-4">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Drop 1</TableHead>
+                  <TableHead>Drop 2</TableHead>
+                  <TableHead>Distance (px)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {distances.map((dist, index) => (
+                  <TableRow key={index}>
+                    <TableCell>{dist.index1 + 1}</TableCell>
+                    <TableCell>{dist.index2 + 1}</TableCell>
+                    <TableCell>{dist.distance.toFixed(2)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+        <div className="mt-4">
+          <Label className="text-sm text-gray-500">Instructions:</Label>
+          <ul className="list-disc list-inside text-sm text-gray-500">
+            <li>Upload an image or capture one using the camera.</li>
+            <li>Click on the image to mark blood drops.</li>
+            <li>Select two marked blood drops to measure the distance between them.</li>
+          </ul>
+        </div>
+      </CardContent>
+    </Card>
+  )
 }
